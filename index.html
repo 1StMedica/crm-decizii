@@ -635,13 +635,17 @@ let REMINDERE = [];  // [{...}]
 let CFG = {luni_valabilitate_default:3, interval_recurenta_zile:15, emailjs_service_id:'service_mtgppoa', emailjs_template_id:'', emailjs_public_key:'AeZwH6rd5SleiqMQc', template_email:'', template_sms:''};
 
 let currentUser = null;
-let selCnp = null;         // pacient selectat in jurnal
-let notifTarget = null;    // {cnp, decizii[]} pentru modal notificare
-let actiuneTarget = null;  // {cnp, tip} pentru modal actiune
+let selCnp = null;
+let notifTarget = null;
+let actiuneTarget = null;
 let masaCanal = 'email';
 let notifCanal = 'email';
-let pendingImport = null;  // date parsate din excel, inainte de confirmare
+let pendingImport = null;
 let agingChartInst = null;
+
+// Stare sortare tabele
+let sortAlerte = {col:'data_alerta', dir:-1};
+let sortRemindere = {col:'data', dir:1};
 
 // ════════════════════════════════════════════════
 // AUTH
@@ -714,7 +718,10 @@ function loadAll(){
     DECIZII={};sd.forEach(d=>{DECIZII[d.id]={id:d.id,...d.data()};});
     JURNAL={};sj.forEach(d=>{const x=d.data();if(x.cnp&&x.note)JURNAL[x.cnp]=x.note;});
     ALERTE={};sa.forEach(d=>{ALERTE[d.id]={id:d.id,...d.data()};});
-    REMINDERE=[];sr.forEach(d=>{REMINDERE.push({id:d.id,...d.data()});});
+    REMINDERE=[];sr.forEach(d=>{
+      const x={id:d.id,...d.data()};
+      if(x.cnp_pacient) REMINDERE.push(x); // ignora remindere fara CNP valid
+    });
     if(scfg.exists)CFG={...CFG,...scfg.data()};
     loadSettingsUI();
     checkAndGenerateAlerte();
@@ -1235,17 +1242,59 @@ function addJurnal(cnp){
 // ════════════════════════════════════════════════
 // ALERTE PAGE
 // ════════════════════════════════════════════════
+function sortTh(col, tbl){
+  if(tbl==='alerte'){
+    if(sortAlerte.col===col) sortAlerte.dir*=-1; else {sortAlerte.col=col;sortAlerte.dir=1;}
+    renderAlerte();
+  } else {
+    if(sortRemindere.col===col) sortRemindere.dir*=-1; else {sortRemindere.col=col;sortRemindere.dir=1;}
+    renderRemindere();
+  }
+}
+function sortIcon(col, tbl){
+  const s = tbl==='alerte'?sortAlerte:sortRemindere;
+  if(s.col!==col) return '<span style="color:var(--t3);font-size:10px"> ⇅</span>';
+  return s.dir===1?'<span style="color:var(--teal);font-size:10px"> ↑</span>':'<span style="color:var(--teal);font-size:10px"> ↓</span>';
+}
+
 function renderAlerte(){
   const tipF = document.getElementById('filtTipAlerta').value;
   const stF = document.getElementById('filtStatusAlerta').value;
   let data = Object.values(ALERTE);
   if(tipF) data=data.filter(a=>a.tip===tipF);
   if(stF) data=data.filter(a=>a.status===stF);
-  data.sort((a,b)=>b.data_alerta.localeCompare(a.data_alerta));
+
+  // Sortare
+  data.sort((a,b)=>{
+    let va='', vb='';
+    if(sortAlerte.col==='nume'){va=(PACIENTI[a.cnp_pacient]?.nume||'').toLowerCase();vb=(PACIENTI[b.cnp_pacient]?.nume||'').toLowerCase();}
+    else if(sortAlerte.col==='cnp'){va=a.cnp_pacient||'';vb=b.cnp_pacient||'';}
+    else if(sortAlerte.col==='aparat'){va=(DECIZII[a.id_decizie]?.cod_aparat||'').toLowerCase();vb=(DECIZII[b.id_decizie]?.cod_aparat||'').toLowerCase();}
+    else if(sortAlerte.col==='tip'){va=a.tip||'';vb=b.tip||'';}
+    else if(sortAlerte.col==='data_expirare'){va=DECIZII[a.id_decizie]?.data_expirare||'';vb=DECIZII[b.id_decizie]?.data_expirare||'';}
+    else if(sortAlerte.col==='status'){va=a.status||'';vb=b.status||'';}
+    else{va=a.data_alerta||'';vb=b.data_alerta||'';}
+    return va<vb?-sortAlerte.dir:va>vb?sortAlerte.dir:0;
+  });
 
   document.getElementById('alerteTitlu').textContent='Alerte ('+data.length+')';
   const today = new Date(); today.setHours(0,0,0,0);
   const tb = document.getElementById('tAlerte');
+
+  // Header cu sortare
+  const thead = tb.closest('table').querySelector('thead');
+  if(thead) thead.innerHTML=`<tr>
+    <th><input type="checkbox" id="chkAll" onchange="toggleAllAlerte(this.checked)"></th>
+    <th style="cursor:pointer" onclick="sortTh('nume','alerte')">Pacient${sortIcon('nume','alerte')}</th>
+    <th style="cursor:pointer" onclick="sortTh('cnp','alerte')">CNP${sortIcon('cnp','alerte')}</th>
+    <th style="cursor:pointer" onclick="sortTh('aparat','alerte')">Aparat${sortIcon('aparat','alerte')}</th>
+    <th style="cursor:pointer" onclick="sortTh('tip','alerte')">Tip alerta${sortIcon('tip','alerte')}</th>
+    <th style="cursor:pointer" onclick="sortTh('data_expirare','alerte')">Data expirare${sortIcon('data_expirare','alerte')}</th>
+    <th>Zile</th>
+    <th style="cursor:pointer" onclick="sortTh('status','alerte')">Status${sortIcon('status','alerte')}</th>
+    <th>Actiuni</th>
+  </tr>`;
+
   if(!data.length){tb.innerHTML='<tr><td colspan="9"><div class="empty">Nicio alerta</div></td></tr>';return;}
   tb.innerHTML = data.map(a=>{
     const pac=PACIENTI[a.cnp_pacient];
@@ -1285,13 +1334,36 @@ function renderRemindere(){
   const fdata = document.getElementById('filtRemData').value;
   const today = new Date().toISOString().slice(0,10);
   let data = [...REMINDERE];
-  // Update status overdue
   data.forEach(r=>{if(r.status==='pending'&&r.data<today)r.status='overdue';});
   if(filt) data=data.filter(r=>r.status===filt);
   if(fdata) data=data.filter(r=>r.data===fdata);
-  data.sort((a,b)=>a.data.localeCompare(b.data));
+
+  // Sortare
+  data.sort((a,b)=>{
+    let va='', vb='';
+    if(sortRemindere.col==='nume'){va=(PACIENTI[a.cnp_pacient]?.nume||'').toLowerCase();vb=(PACIENTI[b.cnp_pacient]?.nume||'').toLowerCase();}
+    else if(sortRemindere.col==='cnp'){va=a.cnp_pacient||'';vb=b.cnp_pacient||'';}
+    else if(sortRemindere.col==='agent'){va=a.agent||'';vb=b.agent||'';}
+    else if(sortRemindere.col==='status'){va=a.status||'';vb=b.status||'';}
+    else if(sortRemindere.col==='aparat'){va=(DECIZII[a.id_decizie]?.cod_aparat||'').toLowerCase();vb=(DECIZII[b.id_decizie]?.cod_aparat||'').toLowerCase();}
+    else{va=a.data||'';vb=b.data||'';}
+    return va<vb?-sortRemindere.dir:va>vb?sortRemindere.dir:0;
+  });
 
   const tb=document.getElementById('tRemindere');
+
+  // Header cu sortare
+  const thead = tb.closest('table').querySelector('thead');
+  if(thead) thead.innerHTML=`<tr>
+    <th style="cursor:pointer" onclick="sortTh('data','remindere')">Data urmarire${sortIcon('data','remindere')}</th>
+    <th style="cursor:pointer" onclick="sortTh('nume','remindere')">Pacient${sortIcon('nume','remindere')}</th>
+    <th style="cursor:pointer" onclick="sortTh('cnp','remindere')">CNP${sortIcon('cnp','remindere')}</th>
+    <th style="cursor:pointer" onclick="sortTh('aparat','remindere')">Aparat${sortIcon('aparat','remindere')}</th>
+    <th style="cursor:pointer" onclick="sortTh('agent','remindere')">Agent${sortIcon('agent','remindere')}</th>
+    <th style="cursor:pointer" onclick="sortTh('status','remindere')">Status${sortIcon('status','remindere')}</th>
+    <th>Actiuni</th>
+  </tr>`;
+
   if(!data.length){tb.innerHTML='<tr><td colspan="7"><div class="empty">Niciun reminder</div></td></tr>';return;}
   tb.innerHTML=data.map(r=>{
     const p=PACIENTI[r.cnp_pacient];
@@ -1299,18 +1371,52 @@ function renderRemindere(){
     const stCls=r.status==='done'?'bg':r.status==='overdue'?'br':'ba';
     const stLbl=r.status==='done'?'Rezolvat':r.status==='overdue'?'Depasit':'In asteptare';
     return `<tr>
-      <td>${r.data||'-'}</td>
-      <td><span class="pn" style="cursor:pointer" onclick="goToFisa('${r.cnp_pacient}')">${p?p.nume:r.cnp_pacient}</span></td>
+      <td>
+        <input type="date" value="${r.data||''}" style="font-family:inherit;font-size:12px;border:1px solid var(--bmed);border-radius:var(--rs);padding:3px 6px;background:var(--surface)"
+          onchange="editReminderData('${r.id}',this.value)">
+      </td>
+      <td><span class="pn" style="cursor:pointer" onclick="goToFisa('${r.cnp_pacient}')">${p?p.nume:r.cnp_pacient}</span>
+        <div style="font-size:11px;color:var(--t3);margin-top:2px">${r.text||''}</div>
+      </td>
       <td><span class="pcnp">${r.cnp_pacient}</span></td>
       <td>${dec?dec.cod_aparat||'-':'-'}</td>
       <td>${r.agent||'-'}</td>
       <td><span class="badge ${stCls}">${stLbl}</span></td>
-      <td style="white-space:nowrap">
+      <td style="white-space:nowrap;display:flex;gap:4px">
         ${r.status!=='done'?`<button class="btn btnsm btnt" onclick="openActiuneComplianta('${r.cnp_pacient}','${r.id||''}')">Verifica</button>`:''}
+        ${r.status!=='done'?`<button class="btn btnsm" onclick="inchideReminder('${r.id}')">Inchide</button>`:''}
+        <button class="btn btnsm" style="color:var(--red);border-color:rgba(163,45,45,.3)" onclick="stergeReminder('${r.id}')">✕</button>
       </td>
     </tr>`;
   }).join('');
   updateBadges();
+}
+
+function editReminderData(id, newData){
+  const r=REMINDERE.find(x=>x.id===id);
+  if(!r)return;
+  r.data=newData;
+  r.status='pending'; // reactivam daca era overdue
+  saveReminder(r);
+  renderRemindere();
+  toast('Data urmarire actualizata','success');
+}
+
+function inchideReminder(id){
+  const r=REMINDERE.find(x=>x.id===id);
+  if(!r)return;
+  r.status='done';
+  saveReminder(r);
+  renderRemindere();updateBadges();
+  toast('Reminder inchis');
+}
+
+function stergeReminder(id){
+  if(!confirm('Stergi acest reminder?'))return;
+  REMINDERE=REMINDERE.filter(x=>x.id!==id);
+  if(window.db) window.db.collection('remindere').doc(id).delete().catch(e=>console.warn(e));
+  renderRemindere();updateBadges();
+  toast('Reminder sters');
 }
 
 // ════════════════════════════════════════════════
@@ -1897,7 +2003,15 @@ function colTip(t){const m={apel:'var(--teal)',email:'var(--blue)',whatsapp:'var
 function uid(){return Math.random().toString(36).slice(2)+Date.now().toString(36);}
 function fv(v){return new Intl.NumberFormat('ro-RO',{minimumFractionDigits:0,maximumFractionDigits:0}).format(v||0);}
 function fd2(d){if(!d)return '-';try{const dt=new Date(d);return dt.toLocaleDateString('ro-RO',{day:'2-digit',month:'2-digit',year:'numeric'});}catch(e){return d;}}
-function fdt(d){if(!d)return '-';try{return new Date(d).toLocaleString('ro-RO',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});}catch(e){return d;}}
+function fdt(d){
+  if(!d)return '-';
+  try{
+    // Firestore Timestamp object
+    const dt = (d && typeof d.toDate==='function') ? d.toDate() : new Date(d);
+    if(isNaN(dt.getTime()))return '-';
+    return dt.toLocaleString('ro-RO',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+  }catch(e){return '-';}
+}
 function cap(s){return s.charAt(0).toUpperCase()+s.slice(1);}
 function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
 function toast(msg,t=''){const el=document.getElementById('toast');el.textContent=msg;el.className='toast'+(t?' '+t:'');el.classList.add('show');setTimeout(()=>el.classList.remove('show'),3500);}
