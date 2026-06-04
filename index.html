@@ -361,7 +361,7 @@ textarea.form-inp{resize:vertical;min-height:80px}
     </div>
     <div class="g3">
       <div class="card">
-        <div class="ch"><div><div class="ct">Top 5 — decizii mai vechi depasite</div><div class="cs">pacienti cu cel mai mare nr. zile depasire</div></div></div>
+        <div class="ch"><div><div class="ct">Decizii depasite — top 10</div><div class="cs">click pe header pentru sortare</div></div></div>
         <div class="tw"><table><thead><tr><th>#</th><th>Pacient</th><th>CNP</th><th>Aparat</th><th>Zile depasire</th><th>Ultima alerta</th></tr></thead><tbody id="tTop5"></tbody></table></div>
       </div>
       <div style="display:flex;flex-direction:column;gap:12px">
@@ -877,6 +877,9 @@ function closeAlerteDecizie(id_decizie, motiv){
 // ════════════════════════════════════════════════
 // DASHBOARD
 // ════════════════════════════════════════════════
+// Stare sortare Top5 dashboard
+let sortTop5 = {col:'zile', dir:-1};
+
 function renderDB(){
   const dashPage = document.getElementById('page-dashboard');
   if(!dashPage || !dashPage.classList.contains('active')) return;
@@ -894,36 +897,21 @@ function renderDB(){
   const rez = Object.values(PACIENTI).filter(p=>p.status==='reziliat');
   const priv = Object.values(PACIENTI).filter(p=>p.status==='privat');
 
-  document.getElementById('d-active').textContent = decActive.length;
-  document.getElementById('d-exp30').textContent = exp30.length;
-  document.getElementById('d-exp10').textContent = exp10.length;
-  document.getElementById('d-dep').textContent = dep.length;
-  document.getElementById('d-necomp').textContent = necomp.length;
-  document.getElementById('d-urm').textContent = urm.length;
-  document.getElementById('d-rez').textContent = rez.length;
-  document.getElementById('d-priv').textContent = priv.length;
+  // Actualizeaza doar textul cardurilor — fara reflow
+  const set = (id,v) => { const el=document.getElementById(id); if(el&&el.textContent!=String(v)) el.textContent=v; };
+  set('d-active', decActive.length);
+  set('d-exp30', exp30.length);
+  set('d-exp10', exp10.length);
+  set('d-dep', dep.length);
+  set('d-necomp', necomp.length);
+  set('d-urm', urm.length);
+  set('d-rez', rez.length);
+  set('d-priv', priv.length);
 
-  // TOP 5 depasite
-  const depCnp = [...new Set(dep.map(a=>a.cnp_pacient))];
-  const top5 = depCnp.map(cnp=>{
-    const decizii = Object.values(DECIZII).filter(d=>d.cnp_pacient===cnp&&d.status==='activa');
-    const maxDep = Math.max(...decizii.map(d=>{const diff=Math.round((today-new Date(d.data_expirare))/86400000);return diff>0?diff:0;}));
-    const lastAlert = Object.values(ALERTE).filter(a=>a.cnp_pacient===cnp&&a.status==='activa').sort((a,b)=>b.data_alerta.localeCompare(a.data_alerta))[0];
-    return {cnp,pac:PACIENTI[cnp],decizii,maxDep,lastAlert};
-  }).sort((a,b)=>b.maxDep-a.maxDep).slice(0,5);
+  // TOP 5 cu sortare
+  renderTop5(dep, today);
 
-  const tb = document.getElementById('tTop5');
-  if(!top5.length){tb.innerHTML='<tr><td colspan="6"><div class="empty">Nicio depasire activa</div></td></tr>';return;}
-  tb.innerHTML = top5.map((r,i)=>`<tr style="cursor:pointer" onclick="goToFisa('${r.cnp}')">
-    <td><span style="font-weight:600;color:var(--t3)">${i+1}</span></td>
-    <td><div class="pn">${r.pac?r.pac.nume||r.cnp:r.cnp}</div></td>
-    <td><span class="pcnp">${r.cnp}</span></td>
-    <td>${r.decizii.map(d=>d.cod_aparat||'-').join(', ')}</td>
-    <td><span class="badge br">${r.maxDep} zile</span></td>
-    <td><span style="font-size:12px;color:var(--t3)">${r.lastAlert?r.lastAlert.data_alerta:'-'}</span></td>
-  </tr>`).join('');
-
-  // Aging chart
+  // Aging chart — doar update date, fara recreare
   const buckets = [0,0,0,0];
   Object.values(DECIZII).filter(d=>d.status==='activa'||d.status==='expirata').forEach(d=>{
     const diff = Math.round((today-new Date(d.data_expirare))/86400000);
@@ -933,10 +921,16 @@ function renderDB(){
     else if(diff<=90)buckets[2]++;
     else buckets[3]++;
   });
-  const agG = document.getElementById('agingGrid');
   const lbls = ['0-30 zile','31-60 zile','61-90 zile','90+ zile'];
   const cols = ['var(--amber)','var(--orange)','var(--red)','#7a1f1f'];
-  agG.innerHTML = buckets.map((v,i)=>`<div style="background:var(--bg);border-radius:var(--rs);padding:8px 10px;border-left:3px solid ${cols[i]}"><div style="font-size:18px;font-weight:600;color:${cols[i]}">${v}</div><div style="font-size:10px;color:var(--t3)">${lbls[i]}</div></div>`).join('');
+
+  // Aging grid — actualizeaza doar valorile numerice
+  const agG = document.getElementById('agingGrid');
+  if(agG && agG.children.length===4){
+    buckets.forEach((v,i)=>{ agG.children[i].querySelector('div').textContent=v; });
+  } else if(agG) {
+    agG.innerHTML = buckets.map((v,i)=>`<div style="background:var(--bg);border-radius:var(--rs);padding:8px 10px;border-left:3px solid ${cols[i]}"><div style="font-size:18px;font-weight:600;color:${cols[i]}">${v}</div><div style="font-size:10px;color:var(--t3)">${lbls[i]}</div></div>`).join('');
+  }
 
   if(agingChartInst){
     agingChartInst.data.datasets[0].data = buckets;
@@ -949,16 +943,78 @@ function renderDB(){
   // Alerte scadente azi
   const azEl = document.getElementById('alerteAzi');
   const azA = Object.values(ALERTE).filter(a=>a.status==='activa'&&a.data_alerta===todayStr);
-  if(!azA.length){azEl.innerHTML='<div style="color:var(--t3)">Nicio alerta scadenta azi.</div>';return;}
-  azEl.innerHTML = azA.slice(0,5).map(a=>{
-    const pac=PACIENTI[a.cnp_pacient];
-    const dec=DECIZII[a.id_decizie];
-    return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="goToFisa('${a.cnp_pacient}')">
-      ${tipAlertaBadge(a.tip)}
-      <span style="font-size:13px;font-weight:500">${pac?pac.nume:a.cnp_pacient}</span>
-      <span style="font-size:12px;color:var(--t3)">${dec?dec.cod_aparat||'':''}</span>
-    </div>`;
-  }).join('');
+  if(!azA.length){azEl.innerHTML='<div style="color:var(--t3)">Nicio alerta scadenta azi.</div>';}
+  else {
+    azEl.innerHTML = azA.slice(0,5).map(a=>{
+      const pac=PACIENTI[a.cnp_pacient];
+      const dec=DECIZII[a.id_decizie];
+      return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="goToFisa('${a.cnp_pacient}')">
+        ${tipAlertaBadge(a.tip)}
+        <span style="font-size:13px;font-weight:500">${pac?pac.nume:a.cnp_pacient}</span>
+        <span style="font-size:12px;color:var(--t3)">${dec?dec.cod_aparat||'':''}</span>
+      </div>`;
+    }).join('');
+  }
+}
+
+function sortTop5Icon(col){
+  if(sortTop5.col!==col) return '<span style="color:var(--t3);font-size:10px"> ⇅</span>';
+  return sortTop5.dir===1?'<span style="color:var(--teal);font-size:10px"> ↑</span>':'<span style="color:var(--teal);font-size:10px"> ↓</span>';
+}
+
+function sortTop5Col(col){
+  if(sortTop5.col===col) sortTop5.dir*=-1; else {sortTop5.col=col;sortTop5.dir=1;}
+  const today = new Date(); today.setHours(0,0,0,0);
+  const dep = Object.values(ALERTE).filter(a=>a.status==='activa'&&(a.tip==='depasire-10'||a.tip==='depasire-recurenta'));
+  renderTop5(dep, today);
+}
+
+function renderTop5(dep, today){
+  const depCnp = [...new Set(dep.map(a=>a.cnp_pacient))];
+  let top5 = depCnp.map(cnp=>{
+    const decizii = Object.values(DECIZII).filter(d=>d.cnp_pacient===cnp&&d.status==='activa');
+    const maxDep = Math.max(0,...decizii.map(d=>{const diff=Math.round((today-new Date(d.data_expirare))/86400000);return diff>0?diff:0;}));
+    const lastAlert = Object.values(ALERTE).filter(a=>a.cnp_pacient===cnp&&a.status==='activa').sort((a,b)=>b.data_alerta.localeCompare(a.data_alerta))[0];
+    const pac = PACIENTI[cnp];
+    return {cnp, pac, decizii, maxDep, lastAlert};
+  });
+
+  // Sortare
+  top5.sort((a,b)=>{
+    let va, vb;
+    if(sortTop5.col==='nume'){va=(a.pac?.nume||'').toLowerCase();vb=(b.pac?.nume||'').toLowerCase();}
+    else if(sortTop5.col==='cnp'){va=a.cnp;vb=b.cnp;}
+    else if(sortTop5.col==='aparat'){va=a.decizii.map(d=>d.cod_aparat).join();vb=b.decizii.map(d=>d.cod_aparat).join();}
+    else if(sortTop5.col==='alerta'){va=a.lastAlert?.data_alerta||'';vb=b.lastAlert?.data_alerta||'';}
+    else{va=a.maxDep;vb=b.maxDep;} // default: zile
+    if(typeof va==='number') return (va-vb)*sortTop5.dir;
+    return va<vb?-sortTop5.dir:va>vb?sortTop5.dir:0;
+  });
+  top5 = top5.slice(0,10); // aratam top 10
+
+  const tb = document.getElementById('tTop5');
+  if(!tb) return;
+
+  // Header sortabil
+  const thead = tb.closest('table').querySelector('thead');
+  if(thead) thead.innerHTML=`<tr>
+    <th>#</th>
+    <th style="cursor:pointer" onclick="sortTop5Col('nume')">Pacient${sortTop5Icon('nume')}</th>
+    <th style="cursor:pointer" onclick="sortTop5Col('cnp')">CNP${sortTop5Icon('cnp')}</th>
+    <th style="cursor:pointer" onclick="sortTop5Col('aparat')">Aparat${sortTop5Icon('aparat')}</th>
+    <th style="cursor:pointer" onclick="sortTop5Col('zile')">Zile depasire${sortTop5Icon('zile')}</th>
+    <th style="cursor:pointer" onclick="sortTop5Col('alerta')">Ultima alerta${sortTop5Icon('alerta')}</th>
+  </tr>`;
+
+  if(!top5.length){tb.innerHTML='<tr><td colspan="6"><div class="empty">Nicio depasire activa</div></td></tr>';return;}
+  tb.innerHTML = top5.map((r,i)=>`<tr style="cursor:pointer" onclick="goToFisa('${r.cnp}')">
+    <td><span style="font-weight:600;color:var(--t3)">${i+1}</span></td>
+    <td><div class="pn">${r.pac?r.pac.nume||r.cnp:r.cnp}</div></td>
+    <td><span class="pcnp">${r.cnp}</span></td>
+    <td>${r.decizii.map(d=>d.cod_aparat||'-').join(', ')}</td>
+    <td><span class="badge br">${r.maxDep} zile</span></td>
+    <td><span style="font-size:12px;color:var(--t3)">${r.lastAlert?r.lastAlert.data_alerta:'-'}</span></td>
+  </tr>`).join('');
 }
 
 function openDashList(tip){
