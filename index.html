@@ -1575,8 +1575,10 @@ function openNotifPacient(cnp){
 
 function setCanal(c){
   notifCanal=c;
-  ['email','sms','whatsapp'].forEach(x=>{
-    document.getElementById('canal'+cap(x)).classList.toggle('active',x===c);
+  const ids={email:'canalEmail',sms:'canalSms',whatsapp:'canalWa'};
+  Object.keys(ids).forEach(x=>{
+    const b=document.getElementById(ids[x]);
+    if(b) b.classList.toggle('active',x===c);
   });
   document.getElementById('notifEmailSec').style.display=c==='email'?'block':'none';
   document.getElementById('notifSmsSec').style.display=c!=='email'?'block':'none';
@@ -1658,7 +1660,8 @@ function openNotifMasa(){
 let masaTargets=[];
 function setMasaCanal(c){
   masaCanal=c;
-  ['email','sms','whatsapp'].forEach(x=>{document.getElementById('masaCanal'+cap(x)).classList.toggle('active',x===c);});
+  const ids={email:'masaCanalEmail',sms:'masaCanalSms',whatsapp:'masaCanalWa'};
+  Object.keys(ids).forEach(x=>{const b=document.getElementById(ids[x]);if(b)b.classList.toggle('active',x===c);});
   document.getElementById('masaEmailSec').style.display=c==='email'?'block':'none';
   document.getElementById('masaSmsSec').style.display=c!=='email'?'block':'none';
 }
