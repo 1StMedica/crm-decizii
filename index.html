@@ -305,6 +305,9 @@ textarea.form-inp{resize:vertical;min-height:80px}
   <div class="topbar">
     <div style="display:flex;align-items:center;gap:10px">
       <button class="hamb" onclick="toggleSidebar()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+      <button class="btn btnsm" id="btnBack" onclick="goBack()" style="display:none">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>Inapoi
+      </button>
       <div class="ptitle" id="ptitle">Dashboard</div>
     </div>
     <div class="tactions">
@@ -358,6 +361,11 @@ textarea.form-inp{resize:vertical;min-height:80px}
         <div class="mval" id="d-priv">-</div>
         <div class="msub">fara decizie CNAS</div>
       </div>
+      <div class="mc purple" onclick="openDashList('urmariri')">
+        <div class="mlbl">Urmariri programate</div>
+        <div class="mval" id="d-urmariri">-</div>
+        <div class="msub">follow-up din jurnal</div>
+      </div>
     </div>
     <div class="g3">
       <div class="card">
@@ -399,6 +407,7 @@ textarea.form-inp{resize:vertical;min-height:80px}
   <!-- ═══════════════ ALERTE ═══════════════ -->
   <div class="page" id="page-alerte">
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+      <input type="text" class="fi" id="searchAlerte" placeholder="🔍 Cauta pacient, CNP, aparat..." oninput="renderAlerte()" style="min-width:220px">
       <select class="fi" id="filtTipAlerta" onchange="renderAlerte()">
         <option value="">Toate tipurile</option>
         <option value="pre-expirare-30">Pre-expirare 30 zile</option>
@@ -430,6 +439,7 @@ textarea.form-inp{resize:vertical;min-height:80px}
   <!-- ═══════════════ REMINDERE ═══════════════ -->
   <div class="page" id="page-remindere">
     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+      <input type="text" class="fi" id="searchRemindere" placeholder="🔍 Cauta pacient, CNP, agent..." oninput="renderRemindere()" style="min-width:220px">
       <select class="fi" id="filtRem" onchange="renderRemindere()">
         <option value="">Toate</option>
         <option value="pending">Nerezolvate</option>
@@ -915,6 +925,7 @@ function _renderDBImpl(){
   const urm = REMINDERE.filter(r=>r.tip==='complianta'&&r.status==='pending'&&r.data<=todayStr);
   const rez = Object.values(PACIENTI).filter(p=>p.status==='reziliat');
   const priv = Object.values(PACIENTI).filter(p=>p.status==='privat');
+  const urmariri = REMINDERE.filter(r=>r.tip==='urmarire'&&r.status!=='done');
 
   // Actualizeaza doar textul cardurilor — fara reflow
   const set = (id,v) => { const el=document.getElementById(id); if(el&&el.textContent!=String(v)) el.textContent=v; };
@@ -926,6 +937,7 @@ function _renderDBImpl(){
   set('d-urm', urm.length);
   set('d-rez', rez.length);
   set('d-priv', priv.length);
+  set('d-urmariri', urmariri.length);
 
   // TOP 5 cu sortare
   renderTop5(dep, today);
@@ -1092,6 +1104,11 @@ function openDashList(tip){
     const data=Object.values(PACIENTI).filter(p=>p.status==='privat');
     cols='<tr><th>Pacient</th><th>CNP</th><th>Judet</th><th>Telefon</th></tr>';
     rows=data.map(p=>`<tr onclick="goToFisa('${p.cnp}')" style="cursor:pointer"><td><div class="pn">${p.nume||p.cnp}</div></td><td><span class="pcnp">${p.cnp}</span></td><td>${p.judet||'-'}</td><td>${p.telefon||'-'}</td></tr>`);
+  } else if(tip==='urmariri'){
+    titlu='Urmariri programate (follow-up din jurnal)';
+    const data=REMINDERE.filter(r=>r.tip==='urmarire'&&r.status!=='done').sort((a,b)=>(a.data||'').localeCompare(b.data||''));
+    cols='<tr><th>Data urmarire</th><th>Pacient</th><th>CNP</th><th>Actiune de urmarit</th><th>Agent</th><th>Actiuni</th></tr>';
+    rows=data.map(r=>{const p=PACIENTI[r.cnp_pacient];const od=r.data<todayStr;return `<tr><td><span class="badge ${od?'br':'bp'}">${r.data||'-'}</span></td><td onclick="goToFisa('${r.cnp_pacient}')" style="cursor:pointer"><div class="pn">${p?p.nume:r.cnp_pacient}</div></td><td><span class="pcnp">${r.cnp_pacient}</span></td><td>${r.text||'-'}</td><td>${r.agent||'-'}</td><td><button class="btn btnsm btnt" onclick="inchideReminder('${r.id}');closeModal('modalDashList')">Rezolvat</button></td></tr>`;});
   }
 
   document.getElementById('dashListTitlu').textContent=titlu+' ('+rows.length+')';
@@ -1223,11 +1240,9 @@ function renderFisa(cnp){
           ${['apel','email','whatsapp','intalnire','promisiune','necompliant','nota'].map(t=>`<button class="itype-btn${selTip===t?' active':''}" id="itype_${cnp}_${t}" onclick="setItype('${cnp}','${t}')">${icoTip(t)} ${t}</button>`).join('')}
         </div>
         <textarea id="itextarea_${cnp}" class="form-inp" placeholder="Descriere interactiune..." style="height:70px;margin-bottom:8px"></textarea>
-        <div id="iextras_${cnp}" style="display:none">
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
-            <div><div class="form-lbl">Data urmarire</div><input type="date" class="form-inp" id="iurm_${cnp}"></div>
-            <div><div class="form-lbl">Observatie suplimentara</div><input type="text" class="form-inp" id="iobs_${cnp}" placeholder="Optional"></div>
-          </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          <div><div class="form-lbl">Data urmarire <span style="color:var(--red)">*</span></div><input type="date" class="form-inp" id="iurm_${cnp}" value="${new Date(Date.now()+7*86400000).toISOString().slice(0,10)}"></div>
+          <div><div class="form-lbl">Observatie / actiune de urmarit <span style="color:var(--red)">*</span></div><input type="text" class="form-inp" id="iobs_${cnp}" placeholder="Ce trebuie urmarit"></div>
         </div>
         <button class="btn btnt btnsm" onclick="addJurnal('${cnp}')">Adauga nota</button>
       </div>
@@ -1252,8 +1267,6 @@ function setItype(cnp, tip){
     const b=document.getElementById(`itype_${cnp}_${t}`);
     if(b) b.classList.toggle('active',t===tip);
   });
-  const ex = document.getElementById(`iextras_${cnp}`);
-  if(ex) ex.style.display = (tip==='necompliant'||tip==='promisiune') ? 'block' : 'none';
 }
 
 function renderTimeline(cnp){
@@ -1271,6 +1284,7 @@ function renderTimeline(cnp){
         ${n.agent?`<span class="tl-agent">&middot; ${n.agent}</span>`:''}
       </div>
       <div class="tl-text">${n.text||''}</div>
+      ${n.obs?`<div style="font-size:12px;color:var(--t2);margin-top:3px"><strong>Urmarit:</strong> ${n.obs}</div>`:''}
       ${n.data_urmarire?`<div style="font-size:11px;color:var(--purple);margin-top:4px">&#128197; Urmarire: ${n.data_urmarire}</div>`:''}
     </div>
   </div>`).join('');
@@ -1280,13 +1294,17 @@ function addJurnal(cnp){
   const ta = document.getElementById(`itextarea_${cnp}`);
   if(!ta||!ta.value.trim()){toast('Completeaza descrierea interactiunii','error');return;}
   const urm = (document.getElementById(`iurm_${cnp}`)||{}).value||'';
-  const obs = (document.getElementById(`iobs_${cnp}`)||{}).value||'';
+  const obs = (document.getElementById(`iobs_${cnp}`)||{}).value.trim()||'';
+  if(!urm){toast('Data de urmarire este obligatorie','error');return;}
+  if(!obs){toast('Observatia / actiunea de urmarit este obligatorie','error');return;}
+  const agent = currentUser ? (currentUser.displayName||currentUser.email) : 'Agent';
   const nota = {
     id: uid(),
     tip: selTip,
-    text: ta.value.trim() + (obs?' — '+obs:''),
+    text: ta.value.trim(),
+    obs: obs,
     data: new Date().toISOString(),
-    agent: currentUser ? (currentUser.displayName||currentUser.email) : 'Agent',
+    agent: agent,
     data_urmarire: urm
   };
   if(!JURNAL[cnp]) JURNAL[cnp]=[];
@@ -1294,25 +1312,29 @@ function addJurnal(cnp){
   saveJurnal(cnp);
   ta.value='';
 
-  // Daca tip necompliant -> seteaza status si creeaza reminder
+  // Creeaza intotdeauna un reminder de urmarire (follow-up din jurnal)
   if(selTip==='necompliant'){
     const pac = PACIENTI[cnp]||{};
     pac.status='necompliant';
     pac.data_urmarire=urm;
     PACIENTI[cnp]=pac;
     savePacient(cnp,pac);
-    if(urm){
-      const rem={id:uid(),cnp_pacient:cnp,tip:'complianta',data:urm,text:'Verificare complianta: '+ta.value.trim(),status:'pending',agent:nota.agent,creat:new Date().toISOString()};
-      REMINDERE.push(rem);saveReminder(rem);
-    }
-    toast('Pacient marcat necompliant','success');
+    const rem={id:uid(),cnp_pacient:cnp,tip:'complianta',data:urm,text:obs,status:'pending',agent,creat:new Date().toISOString()};
+    REMINDERE.push(rem);saveReminder(rem);
+    toast('Pacient marcat necompliant + reminder creat','success');
+  } else {
+    // reminder de urmarire generala
+    const rem={id:uid(),cnp_pacient:cnp,tip:'urmarire',data:urm,text:obs+' ('+selTip+')',status:'pending',agent,creat:new Date().toISOString()};
+    REMINDERE.push(rem);saveReminder(rem);
+    toast('Interactiune adaugata + urmarire programata','success');
   }
 
   // Re-render timeline
   const tl = document.getElementById(`timeline_${cnp}`);
   if(tl) tl.innerHTML = renderTimeline(cnp);
+  // reset campuri
+  const obsEl=document.getElementById(`iobs_${cnp}`); if(obsEl) obsEl.value='';
   renderPL();renderDB();updateBadges();
-  toast('Interactiune adaugata','success');
 }
 
 // ════════════════════════════════════════════════
@@ -1336,9 +1358,19 @@ function sortIcon(col, tbl){
 function renderAlerte(){
   const tipF = document.getElementById('filtTipAlerta').value;
   const stF = document.getElementById('filtStatusAlerta').value;
+  const q = (document.getElementById('searchAlerte')?.value||'').toLowerCase().trim();
   let data = Object.values(ALERTE);
   if(tipF) data=data.filter(a=>a.tip===tipF);
   if(stF) data=data.filter(a=>a.status===stF);
+  if(q) data=data.filter(a=>{
+    const pac=PACIENTI[a.cnp_pacient];
+    const dec=DECIZII[a.id_decizie];
+    return (pac?.nume||'').toLowerCase().includes(q)
+      || (a.cnp_pacient||'').includes(q)
+      || (dec?.cod_aparat||'').toLowerCase().includes(q)
+      || (dec?.nr_decizie||'').toLowerCase().includes(q)
+      || (a.tip||'').toLowerCase().includes(q);
+  });
 
   // Sortare
   data.sort((a,b)=>{
@@ -1408,11 +1440,20 @@ function inchideAlerta(id, motiv){
 function renderRemindere(){
   const filt = document.getElementById('filtRem').value;
   const fdata = document.getElementById('filtRemData').value;
+  const q = (document.getElementById('searchRemindere')?.value||'').toLowerCase().trim();
   const today = new Date().toISOString().slice(0,10);
   let data = [...REMINDERE];
   data.forEach(r=>{if(r.status==='pending'&&r.data<today)r.status='overdue';});
   if(filt) data=data.filter(r=>r.status===filt);
   if(fdata) data=data.filter(r=>r.data===fdata);
+  if(q) data=data.filter(r=>{
+    const p=PACIENTI[r.cnp_pacient];
+    return (p?.nume||'').toLowerCase().includes(q)
+      || (r.cnp_pacient||'').includes(q)
+      || (r.agent||'').toLowerCase().includes(q)
+      || (r.text||'').toLowerCase().includes(q)
+      || (DECIZII[r.id_decizie]?.cod_aparat||'').toLowerCase().includes(q);
+  });
 
   // Sortare
   data.sort((a,b)=>{
@@ -2026,18 +2067,40 @@ function resetImport(){
 }
 
 // ════════════════════════════════════════════════
-// HELPERS UI
+// HELPERS UI + NAVIGARE
 // ════════════════════════════════════════════════
-function showPage(id,el){
+let navHistory = []; // stiva de pagini vizitate
+let currentPage = 'dashboard';
+
+function showPage(id,el,skipHistory){
+  // Salveaza pagina curenta in istoric (daca e diferita)
+  if(!skipHistory && currentPage && currentPage!==id){
+    navHistory.push(currentPage);
+    if(navHistory.length>20) navHistory.shift();
+  }
+  currentPage = id;
+
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.ni').forEach(n=>n.classList.remove('active'));
   document.getElementById('page-'+id).classList.add('active');
   if(el)el.classList.add('active');
+  else{const nav=document.getElementById('nav-'+id);if(nav)nav.classList.add('active');}
   document.getElementById('ptitle').textContent=PAGES[id]||id;
+
+  // Buton back — vizibil daca exista istoric
+  const bb=document.getElementById('btnBack');
+  if(bb) bb.style.display = navHistory.length>0 ? 'inline-flex' : 'none';
+
   if(id==='dashboard')renderDB();
   if(id==='jurnal')renderPL();
   if(id==='alerte')renderAlerte();
   if(id==='remindere')renderRemindere();
+}
+
+function goBack(){
+  if(!navHistory.length){showPage('dashboard',document.getElementById('nav-dashboard'),true);return;}
+  const prev = navHistory.pop();
+  showPage(prev, document.getElementById('nav-'+prev), true);
 }
 
 function closeModal(id){document.getElementById(id).classList.remove('open');}
