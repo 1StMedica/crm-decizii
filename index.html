@@ -369,7 +369,7 @@ textarea.form-inp{resize:vertical;min-height:80px}
           <div class="ch"><div class="ct">Aging — zile depasire</div></div>
           <div style="padding:14px 18px">
             <div id="agingGrid" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px"></div>
-            <canvas id="agingChart" height="140"></canvas>
+            <div style="position:relative;height:140px;width:100%"><canvas id="agingChart"></canvas></div>
           </div>
         </div>
         <div class="card">
@@ -880,7 +880,12 @@ function closeAlerteDecizie(id_decizie, motiv){
 // Stare sortare Top5 dashboard
 let sortTop5 = {col:'zile', dir:-1};
 
+let _renderDBTimer = null;
 function renderDB(){
+  clearTimeout(_renderDBTimer);
+  _renderDBTimer = setTimeout(_renderDBImpl, 150);
+}
+function _renderDBImpl(){
   const dashPage = document.getElementById('page-dashboard');
   if(!dashPage || !dashPage.classList.contains('active')) return;
   const today = new Date(); today.setHours(0,0,0,0);
@@ -937,7 +942,7 @@ function renderDB(){
     agingChartInst.update('none');
   } else {
     const ctx = document.getElementById('agingChart').getContext('2d');
-    agingChartInst = new Chart(ctx,{type:'doughnut',data:{labels:lbls,datasets:[{data:buckets,backgroundColor:['#FAEEDA','#fdf0e8','#FCEBEB','#f5c6c6'],borderColor:cols,borderWidth:2}]},options:{plugins:{legend:{position:'bottom',labels:{font:{size:11},boxWidth:12}}},cutout:'65%',responsive:true,maintainAspectRatio:false}});
+    agingChartInst = new Chart(ctx,{type:'doughnut',data:{labels:lbls,datasets:[{data:buckets,backgroundColor:['#FAEEDA','#fdf0e8','#FCEBEB','#f5c6c6'],borderColor:cols,borderWidth:2}]},options:{animation:false,responsive:true,maintainAspectRatio:false,onResize:null,plugins:{legend:{position:'bottom',labels:{font:{size:11},boxWidth:12}}},cutout:'65%'}});
   }
 
   // Alerte scadente azi
