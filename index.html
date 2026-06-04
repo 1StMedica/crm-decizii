@@ -1758,59 +1758,76 @@ async function doImport(){
 
   const {rows,fname}=pendingImport;
   const agent=currentUser?(currentUser.displayName||currentUser.email):'Agent';
-  const today=new Date().toISOString().slice(0,10);
   let pacNoi=0, decActualizate=0;
+
+  // Procesam datele in memorie intai
+  const ops=[]; // {col, id, data} - operatii de scris
 
   for(const r of rows){
     const cnp=r.cnp;
-    // Upsert pacient
+
+    // Upsert pacient in memorie
     if(!PACIENTI[cnp]){
       PACIENTI[cnp]={cnp,nume:r.nume,judet:r.judet,telefon:r.telefon,nr_contract:r.nr_contract,email:'',status:'activ',rata_lunara:r.tarif_lunar};
       pacNoi++;
     } else {
-      // Update date demografice, nu status
       const p=PACIENTI[cnp];
       p.nume=r.nume||p.nume;p.judet=r.judet||p.judet;p.telefon=r.telefon||p.telefon;p.nr_contract=r.nr_contract||p.nr_contract;
       if(r.tarif_lunar) p.rata_lunara=r.tarif_lunar;
     }
-    // Motiv reziliere din import
     if(r.motiv_reziliere&&PACIENTI[cnp].status==='activ'){
       PACIENTI[cnp].status='reziliat';PACIENTI[cnp].motiv_reziliere=r.motiv_reziliere;
     }
-    await savePacient(cnp, PACIENTI[cnp]);
+    ops.push({col:'pacienti',id:cnp,data:{...PACIENTI[cnp]}});
 
     if(r._status==='fara_decizie'||!r.cod_aparat) continue;
 
-    // Verifica daca exista deja o decizie identica
+    // Idempotent check
     const identica=Object.values(DECIZII).find(d=>d.cnp_pacient===cnp&&d.nr_decizie===r.nr_decizie&&d.data_emitere===r.data_emitere);
-    if(identica) continue; // Skip - idempotent
+    if(identica) continue;
 
-    // Verifica daca exista decizie activa pentru acelasi cod_aparat
+    // Arhiveaza decizia veche daca exista
     const decExist=Object.values(DECIZII).find(d=>d.cnp_pacient===cnp&&d.cod_aparat===r.cod_aparat&&d.status==='activa');
     if(decExist){
-      // Arhiveaza decizia veche si inchide alertele
       decExist.status='arhivata';
-      await saveDecizie(decExist.id,decExist);
+      ops.push({col:'decizii',id:decExist.id,data:{...decExist}});
       closeAlerteDecizie(decExist.id,'decizie_noua');
       decActualizate++;
     }
 
-    // Creeaza decizia noua
+    // Decizie noua
     const decId='dec_'+cnp+'_'+r.cod_aparat+'_'+(r.nr_decizie||Date.now()).replace(/[^a-zA-Z0-9]/g,'_');
     const decNou={id:decId,cnp_pacient:cnp,nr_decizie:r.nr_decizie,nr_contract:r.nr_contract,cod_aparat:r.cod_aparat,tarif_lunar:r.tarif_lunar,data_emitere:r.data_emitere,data_expirare:r.data_expirare,luni_valabilitate:r.luni_valabilitate,status:'activa',sursa:'import',data_primire:r.data_primire,casa_asigurari:r.casa_asigurari,medic:r.medic,spital:r.spital,diagnostic:r.diagnostic,observatii:r.observatii};
     DECIZII[decId]=decNou;
-    await saveDecizie(decId,decNou);
+    ops.push({col:'decizii',id:decId,data:{...decNou}});
   }
 
-  // Salveaza metadate import
+  // Scriem in Firestore cu batch-uri de 400 (limita e 500)
+  btn.textContent=`Se salveaza ${ops.length} inregistrari...`;
+  const BATCH_SIZE=400;
+  try{
+    for(let i=0;i<ops.length;i+=BATCH_SIZE){
+      const chunk=ops.slice(i,i+BATCH_SIZE);
+      const batch=window.db.batch();
+      chunk.forEach(op=>{
+        const ref=window.db.collection(op.col).doc(op.id);
+        batch.set(ref,op.data,{merge:true});
+      });
+      await batch.commit();
+      btn.textContent=`Se salveaza... ${Math.min(i+BATCH_SIZE,ops.length)}/${ops.length}`;
+    }
+  }catch(e){
+    toast('Eroare la salvare: '+e.message,'error');
+    btn.textContent='Confirma importul';btn.disabled=false;
+    return;
+  }
+
+  // Metadate import
   try{
     await window.db.collection('imports').add({fisier:fname,randuri:rows.length,pacienti_noi:pacNoi,decizii_actualizate:decActualizate,agent,ts:firebase.firestore.FieldValue.serverTimestamp()});
   }catch(e){}
 
-  // Re-genereaza alerte
   checkAndGenerateAlerte();
-
-  // Update UI
   renderDB();renderPL();renderAlerte();renderRemindere();updateBadges();
   const tb=document.getElementById('tImpHist');
   if(tb)tb.insertAdjacentHTML('afterbegin',`<tr><td>${new Date().toLocaleString('ro-RO')}</td><td>${fname}</td><td>${rows.length}</td><td>${pacNoi}</td><td>${decActualizate}</td><td>${agent}</td></tr>`);
