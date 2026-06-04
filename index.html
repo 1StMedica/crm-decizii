@@ -399,6 +399,7 @@ textarea.form-inp{resize:vertical;min-height:80px}
   <!-- ═══════════════ ALERTE ═══════════════ -->
   <div class="page" id="page-alerte">
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+      <input type="text" class="fi" id="searchAlerte" placeholder="🔍 Cauta pacient, CNP, aparat..." oninput="renderAlerte()" style="min-width:220px">
       <select class="fi" id="filtTipAlerta" onchange="renderAlerte()">
         <option value="">Toate tipurile</option>
         <option value="pre-expirare-30">Pre-expirare 30 zile</option>
@@ -430,6 +431,7 @@ textarea.form-inp{resize:vertical;min-height:80px}
   <!-- ═══════════════ REMINDERE ═══════════════ -->
   <div class="page" id="page-remindere">
     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+      <input type="text" class="fi" id="searchRemindere" placeholder="🔍 Cauta pacient, CNP, agent..." oninput="renderRemindere()" style="min-width:220px">
       <select class="fi" id="filtRem" onchange="renderRemindere()">
         <option value="">Toate</option>
         <option value="pending">Nerezolvate</option>
@@ -1321,9 +1323,19 @@ function sortIcon(col, tbl){
 function renderAlerte(){
   const tipF = document.getElementById('filtTipAlerta').value;
   const stF = document.getElementById('filtStatusAlerta').value;
+  const q = (document.getElementById('searchAlerte')?.value||'').toLowerCase().trim();
   let data = Object.values(ALERTE);
   if(tipF) data=data.filter(a=>a.tip===tipF);
   if(stF) data=data.filter(a=>a.status===stF);
+  if(q) data=data.filter(a=>{
+    const pac=PACIENTI[a.cnp_pacient];
+    const dec=DECIZII[a.id_decizie];
+    return (pac?.nume||'').toLowerCase().includes(q)
+      || (a.cnp_pacient||'').includes(q)
+      || (dec?.cod_aparat||'').toLowerCase().includes(q)
+      || (dec?.nr_decizie||'').toLowerCase().includes(q)
+      || (a.tip||'').toLowerCase().includes(q);
+  });
 
   // Sortare
   data.sort((a,b)=>{
@@ -1393,11 +1405,20 @@ function inchideAlerta(id, motiv){
 function renderRemindere(){
   const filt = document.getElementById('filtRem').value;
   const fdata = document.getElementById('filtRemData').value;
+  const q = (document.getElementById('searchRemindere')?.value||'').toLowerCase().trim();
   const today = new Date().toISOString().slice(0,10);
   let data = [...REMINDERE];
   data.forEach(r=>{if(r.status==='pending'&&r.data<today)r.status='overdue';});
   if(filt) data=data.filter(r=>r.status===filt);
   if(fdata) data=data.filter(r=>r.data===fdata);
+  if(q) data=data.filter(r=>{
+    const p=PACIENTI[r.cnp_pacient];
+    return (p?.nume||'').toLowerCase().includes(q)
+      || (r.cnp_pacient||'').includes(q)
+      || (r.agent||'').toLowerCase().includes(q)
+      || (r.text||'').toLowerCase().includes(q)
+      || (DECIZII[r.id_decizie]?.cod_aparat||'').toLowerCase().includes(q);
+  });
 
   // Sortare
   data.sort((a,b)=>{
